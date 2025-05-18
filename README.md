@@ -1,4 +1,4 @@
-# disLR2
+# Схема
 restaurant_delivery_lab2/
 ├── backend/
 │   ├── app/

@@ -1,0 +1,92 @@
+# Файл: docker-compose.yml
+version: '3.8' # Используем актуальную версию
+
+services:
+  # Сервис Базы Данных PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: restaurant_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro  # Ключевое изменение!
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: restaurant_db
+    ports:
+      - "5433:5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d restaurant_db" ]  # Явные значения вместо $$
+      interval: 10s
+      timeout: 5s
+      retries: 10  # Увеличено количество попыток
+
+  # Сервис Кэша Redis
+  redis:
+    image: redis:7-alpine # Легковесный образ
+    container_name: restaurant_redis
+    ports:
+      - "6379:6379" # Стандартный порт Redis
+    volumes:
+      - redis_data:/data # Volume для сохранения данных Redis (опционально)
+    networks:
+      - app-network
+    healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+  # Сервис Брокера Сообщений RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine # Образ с UI управления
+    container_name: restaurant_rabbitmq
+    ports:
+      - "5672:5672"  # Порт AMQP для подключения клиентов
+      - "15672:15672" # Порт для Web UI (логин guest/guest)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq/ # Volume для данных RabbitMQ
+    # Секция environment полностью удалена, так как мы не задаем переменных
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Сервис Бэкенда (Python FastAPI)
+  backend:
+    build: ./backend # Указываем путь к Dockerfile
+    container_name: restaurant_backend
+    env_file:
+      - ./backend/.env # Загружаем переменные окружения из .env файла
+    volumes:
+      - ./backend:/app # Монтируем код бэкенда в контейнер для live reload
+    ports:
+      - "8000:8000" # Пробрасываем порт FastAPI/Uvicorn
+    depends_on: # Указываем зависимости, чтобы бэкенд стартовал после них
+      db:
+        condition: service_healthy # Ждем успешного healthcheck БД
+      redis:
+        condition: service_healthy # Ждем успешного healthcheck Redis
+      rabbitmq:
+        condition: service_healthy # Ждем успешного healthcheck RabbitMQ
+    networks:
+      - app-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload # Переопределяем команду для разработки
+
+# Определяем сети и вольюмы
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge # Стандартная сеть Docker

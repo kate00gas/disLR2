@@ -1,4 +1,6 @@
 # Схема
+# Папку .idea не копировать!
+
 restaurant_delivery_lab2/
 ├── backend/
 │   ├── app/
